@@ -8,24 +8,25 @@
 
 import UIKit
 
+public typealias ReusableHeaderFooterIdentifier = String
+
 extension UITableView: CollectionSkeleton {
-    
     var estimatedNumberOfRows: Int {
         return Int(ceil(frame.height/rowHeight))
     }
     
     var skeletonDataSource: SkeletonCollectionDataSource? {
-        get { return objc_getAssociatedObject(self, &CollectionAssociatedKeys.dummyDataSource) as? SkeletonCollectionDataSource }
+        get { return ao_get(pkey: &CollectionAssociatedKeys.dummyDataSource) as? SkeletonCollectionDataSource }
         set {
-            objc_setAssociatedObject(self, &CollectionAssociatedKeys.dummyDataSource, newValue, AssociationPolicy.retain.objc)
+            ao_setOptional(newValue, pkey: &CollectionAssociatedKeys.dummyDataSource)
             self.dataSource = newValue
         }
     }
     
     var skeletonDelegate: SkeletonCollectionDelegate? {
-        get { return objc_getAssociatedObject(self, &CollectionAssociatedKeys.dummyDelegate) as? SkeletonCollectionDelegate }
+        get { return ao_get(pkey: &CollectionAssociatedKeys.dummyDelegate) as? SkeletonCollectionDelegate }
         set {
-            objc_setAssociatedObject(self, &CollectionAssociatedKeys.dummyDelegate, newValue, AssociationPolicy.retain.objc)
+            ao_setOptional(newValue, pkey: &CollectionAssociatedKeys.dummyDelegate)
             self.delegate = newValue
         }
     }
@@ -34,9 +35,29 @@ extension UITableView: CollectionSkeleton {
         guard let originalDataSource = self.dataSource as? SkeletonTableViewDataSource,
             !(originalDataSource is SkeletonCollectionDataSource)
             else { return }
-        let dataSource = SkeletonCollectionDataSource(tableViewDataSource: originalDataSource, rowHeight: calculateRowHeight())
+        let calculatedRowHeight = calculateRowHeight()
+        let dataSource = SkeletonCollectionDataSource(tableViewDataSource: originalDataSource,
+                                                      rowHeight: rowHeight,
+                                                      originalRowHeight: self.rowHeight)
+        rowHeight = calculatedRowHeight
         self.skeletonDataSource = dataSource
+
+        if let originalDelegate = self.delegate as? SkeletonTableViewDelegate,
+            !(originalDelegate is SkeletonCollectionDelegate)
+        {
+            let delegate = SkeletonCollectionDelegate(tableViewDelegate: originalDelegate)
+            self.skeletonDelegate = delegate
+        }
+
         reloadData()
+    }
+    
+    func updateDummyDataSource() {
+        if (dataSource as? SkeletonCollectionDataSource) != nil {
+            reloadData()
+        } else {
+            addDummyDataSource()
+        }
     }
     
     func removeDummyDataSource(reloadAfter: Bool) {
@@ -44,17 +65,22 @@ extension UITableView: CollectionSkeleton {
         restoreRowHeight()
         self.skeletonDataSource = nil
         self.dataSource = dataSource.originalTableViewDataSource
+
+        if let delegate = self.delegate as? SkeletonCollectionDelegate {
+            self.skeletonDelegate = nil
+            self.delegate = delegate.originalTableViewDelegate
+        }
+
         if reloadAfter { self.reloadData() }
     }
 
     private func restoreRowHeight() {
         guard let dataSource = self.dataSource as? SkeletonCollectionDataSource else { return }
-        rowHeight = dataSource.rowHeight
+        rowHeight = dataSource.originalRowHeight
     }
     
     private func calculateRowHeight() -> CGFloat {
-        guard rowHeight == UITableViewAutomaticDimension else { return rowHeight }
-        rowHeight = estimatedRowHeight
+        guard rowHeight == UITableView.automaticDimension else { return rowHeight }
         return estimatedRowHeight
     }
 }
